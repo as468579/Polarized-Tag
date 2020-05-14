@@ -7,5 +7,6 @@ classdef PMSParameters
         trun_color double = 10 
         trun_grad double = 2
         temporal logical = false
+        iteration int8 = 3
     end
 end
