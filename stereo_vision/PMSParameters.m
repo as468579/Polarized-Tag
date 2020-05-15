@@ -1,5 +1,5 @@
 classdef PMSParameters
-    properties
+    properties(Constant)
         windowSize(1, 3) = [35, 35, 35]
         disparityRange(1, 2) = [0, 512]
         gamma double = 10
@@ -8,5 +8,6 @@ classdef PMSParameters
         trun_grad double = 2
         temporal logical = false
         iteration int8 = 3
+        PLANE_PENALTY int8 = 120
     end
 end

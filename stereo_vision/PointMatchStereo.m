@@ -45,29 +45,28 @@ classdef PointMatchStereo
    
         function get_weighted_dissimilarity(obj)
 
-            width = obj.width;
             height = obj.height;
+            width = obj.width;
+            weighted_dissimilarity = zeros(obj.height, obj.width);
             
-            weighted_dissimilarity = zeros(height, width);
             
-%             parfor (w = 1:width, 2)
-            for w = 1:obj.width
+            parfor (w = 1:width, 6)
+%             for w = 1:obj.width
                 for h = 1:height
-                    point_coordinate = [h, w];
-                    weighted_dissimilarity(h, w) = matchPixels(obj, point_coordinate);
-                    str = ["height :", num2str(h), ", width : ", num2str(w)];
-                    disp(str);
+                    weighted_dissimilarity(h, w) = matchPixels(obj, h, w);
                 end
+                str = ["height :", num2str(h), ", width : ", num2str(w)];
+                disp(str);
             end
-            obj.dissimilarityMap =  weighted_dissimilarity;
+%             [w, h] = meshgrid(1:obj.width, 1:obj.height);
+%             arrayfun(@obj.matchPixels, h, w);
+%             obj.dissimilarityMap =  weighted_dissimilarity;
             
         end
 
-        function m = matchPixels(obj, point_coordinates)
-
-            h= point_coordinates(1);
-            w = point_coordinates(2);
-
+        function m = matchPixels(obj, h, w)
+            str = ["h : ", h, ", w : ", w];
+            disp(str);
             height_range_of_window = ceil(h-obj.pms.windowSize/2):ceil(h+obj.pms.windowSize/2 - 1);
             width_range_of_window =  ceil(w-obj.pms.windowSize/2):ceil(w+obj.pms.windowSize/2 - 1);
 
@@ -87,86 +86,112 @@ classdef PointMatchStereo
                 color_diff =  obj.image(h, w, :) - intensities_references;
                 color_distance = sum(abs(color_diff), 3);
                 weight_mtx = exp(-1 * color_distance / obj.pms.gamma);
-                s = getDissimilarity(obj, point_coordinates, range);
+                timer = tic;
+                point_coordinate = [h , w];
+                [s, numOfInvalid] = getDissimilarity(obj, point_coordinate, range);
+                time_getDissimilarity = toc(timer);
             end
-            m = sum(weight_mtx .* s, 'all');
+            m = sum(weight_mtx .* s, 'all') + numOfInvalid * obj.pms.PLANE_PENALTY;
         end
 
-        function s = getDissimilarity(obj, point_coordinate, range)
+        function [s, numOfInvalid] = getDissimilarity(obj, point_coordinate, range)
+            all = tic;
 
             height_range_of_window = range{1};
             width_range_of_window = range{2};
+
             
             height = point_coordinate(1);
             width = point_coordinate(2);
-            
-            dissimilarityMap = zeros(obj.height, obj.width);
-            
-            %  get dispariy Map
-            x = obj.coordinatesMap(:, :, 1);
-            y = obj.coordinatesMap(:, :, 2);
-            
-            timer_getDisparity  = tic;
+
+             %  get dispariy Map
+            timer = tic;
             coordinates_references =  obj.coordinatesMap(height_range_of_window, width_range_of_window, :);
-            disparities =    obj.planeMap(height, width, 1) .* coordinates_references(:, :, 1) + obj.planeMap(height, width, 2) .* coordinates_references(:, :, 1) + obj.planeMap(height, width, 3);
-            time_getDisparity = toc(timer_getDisparity);
+            disparities = obj.planeMap(height, width, 1) .* coordinates_references(:, :, 1) + obj.planeMap(height, width, 2) .* coordinates_references(:, :, 2) + obj.planeMap(height, width, 3);
+            time_getDispariy = toc(timer);
             
             % filter out illegal disparity
-            timer_filterDisparity  = tic;
+            timer = tic;
             reflected_coordinates = coordinates_references;
-            valid = ((coordinates_references(:, :, 1) - disparities) > 1) & ((coordinates_references(:, :, 1) - disparities) <= obj.width);
+            valid = (disparities > obj.pms.disparityRange(1) & disparities < obj.pms.disparityRange(2));
+            inside = ((coordinates_references(:, :, 1) - disparities) > 1) & ((coordinates_references(:, :, 1) - disparities) <= obj.width);
+            
+            legal = logical(valid & inside);
             tmp = coordinates_references(:, :, 1);
-            reflected_coordinates(valid) = tmp(valid) - disparities(valid);
-            reflected_coordinates(:, :, 2) = coordinates_references(:, :, 2);
-            time_filterDisparity = toc(timer_filterDisparity);
+            reflected_x = tmp(legal) - disparities(legal);
+            tmp = coordinates_references(:, :, 2);
+            reflected_y = tmp(legal);
+            reflected_coordinates = cat(3, reflected_x, reflected_y);
+            time_filterDispariy = toc(timer);
             
             % interpolate2D continuous intensities and gradients of reflected coordinates
-            timer_interpolate2D  = tic;
-            
-%             reflected_intensities_r = interp2(x, y, single(obj.image(:, :, 1)), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-%             reflected_intensities_g = interp2(x, y, single(obj.image(:, :, 2)), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-%             reflected_intensities_b = interp2(x, y, single(obj.image(:, :, 3)), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-%             reflected_gradX = interp2(x, y, obj.grad_image(:, :, 1), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-%             reflected_gradY = interp2(x, y, obj.grad_image(:, :, 2), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-            
-            minX = min(reflected_coordinates(:, :, 1), [], 'all');
-            maxX = max(reflected_coordinates(:, :, 1), [], 'all');
-            minY = min(reflected_coordinates(:, :, 2), [], 'all');
-            maxY = max(reflected_coordinates(:, :, 2), [], 'all');
-            reflected_intensities_r = qinterp2(x(minY:maxY, minX:maxX), y(minY:maxY, minX:maxX), single(obj.image(minY:maxY, minX:maxX, 1)), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-            reflected_intensities_g = qinterp2(x(minY:maxY, minX:maxX), y(minY:maxY, minX:maxX), single(obj.image(minY:maxY, minX:maxX, 2)), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-            reflected_intensities_b = qinterp2(x(minY:maxY, minX:maxX), y(minY:maxY, minX:maxX), single(obj.image(minY:maxY, minX:maxX, 3)), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-            reflected_gradX = qinterp2(x(minY:maxY, minX:maxX), y(minY:maxY, minX:maxX), obj.grad_image(minY:maxY, minX:maxX, 1), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-            reflected_gradY = qinterp2(x(minY:maxY, minX:maxX), y(minY:maxY, minX:maxX), obj.grad_image(minY:maxY, minX:maxX, 2), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2)); 
-%             [x, y] = ndgrid(minY:maxY, minX:maxX);
-%             interp_r = griddedInterpolant(x, y, single(obj.image(minY:maxY, minX:maxX, 1)));
-%             interp_g = griddedInterpolant(x, y, single(obj.image(minY:maxY, minX:maxX, 2)));
-%             interp_b = griddedInterpolant(x, y, single(obj.image(minY:maxY, minX:maxX, 3)));
-%             reflected_intensities_r = interp_r(reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-%             reflected_intensities_g= interp_g(reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-%             reflected_intensities_b= interp_b(reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
-%             
-%             interp_gradX = griddedInterpolant(x, y, single(obj.grad_image(minY:maxY, minX:maxX, 1)));
-%             interp_gtadY = griddedInterpolant(x, y, single(obj.grad_image(minY:maxY, minX:maxX, 2)));
-%             reflected_gradX = interp_gradX(reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));             
-%             reflected_gradY = interp_gtadY(reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2)); 
-            time_interpolate2D = toc(timer_interpolate2D);
-            
-            % calculate L1 distance in color space, gradient
-            timer_calculateL1  = tic;
-            color_diff = single(obj.reference(height_range_of_window, width_range_of_window, :)) - cat(3, reflected_intensities_r, reflected_intensities_g, reflected_intensities_b);
-            color_distance = sum(abs(color_diff), 3);
-            color_distance(color_distance < obj.pms.trun_color) = obj.pms.trun_color;
-            
-            grad_diff = obj.grad_reference(height_range_of_window, width_range_of_window, :) - cat(3, reflected_gradX, reflected_gradY);
-            grad_distance = sum(abs(color_diff), 3);
-            grad_distance(grad_distance < obj.pms.trun_grad) = obj.pms.trun_grad;
-            time_calculateL1 = toc(timer_calculateL1);
-            
-            % calculate dissimilarity
-            timer_dissimilarity  = tic;
-            s = (1 - obj.pms.alpha) .* color_distance + obj.pms.alpha .* grad_distance;
-            time_dissimilarity = toc(timer_dissimilarity);
+            timerbig = tic;
+            s = zeros(size(coordinates_references(:, :, 1)));
+            if sum(legal, 'all') ~= 0
+                minX = floor(min(reflected_coordinates(:, :, 1), [], 'all'));
+                maxX = ceil(max(reflected_coordinates(:, :, 1), [], 'all'));
+                minY = floor(min(reflected_coordinates(:, :, 2), [], 'all'));
+                maxY = ceil(max(reflected_coordinates(:, :, 2), [], 'all'));
+                if maxY > 370
+                    disp("exceed");
+                    disp(maxY);
+                end
+                timer = tic;
+                partial_image =  single(obj.image(minY:maxY, minX:maxX, :));
+                partial_grad = single(obj.grad_image(minY:maxY, minX:maxX, :));
+                partial_coordinates = obj.coordinatesMap(minY:maxY, minX:maxX, :);
+%                 partial_image = gpuArray(partial_image);
+%                 partial_grad = gpuArray(partial_grad);
+                if minY == maxY
+                    reflected_intensities_r = interp1(partial_coordinates(:, :, 1), partial_image(:, :, 1), reflected_coordinates(:, :, 1));
+                    reflected_intensities_g = interp1(partial_coordinates(:, :, 1), partial_image(:, :, 2), reflected_coordinates(:, :, 1));
+                    reflected_intensities_b = interp1(partial_coordinates(:, :, 1), partial_image(:, :, 3), reflected_coordinates(:, :, 1));
+                    reflected_gradX = interp1(partial_coordinates(:, :, 1), partial_grad(:, :, 1), reflected_coordinates(:, :, 1));
+                    reflected_gradY = interp1(partial_coordinates(:, :, 1), partial_grad(:, :, 2), reflected_coordinates(:, :, 1));
+%                     time_interp2 = toc(timer);
+                else
+                    reflected_intensities_r = interp2(partial_coordinates(:, :, 1), partial_coordinates(:, :, 2), partial_image(:, :, 1), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
+                    reflected_intensities_g = interp2(partial_coordinates(:, :, 1), partial_coordinates(:, :, 2), partial_image(:, :, 2), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
+                    reflected_intensities_b = interp2(partial_coordinates(:, :, 1), partial_coordinates(:, :, 2), partial_image(:, :, 3), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
+                    reflected_gradX = interp2(partial_coordinates(:, :, 1), partial_coordinates(:, :, 2), partial_grad(:, :, 1), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2));
+                    reflected_gradY = interp2(partial_coordinates(:, :, 1), partial_coordinates(:, :, 2), partial_grad(:, :, 2), reflected_coordinates(:, :, 1), reflected_coordinates(:, :, 2)); 
+%                     time_interp2 = toc(timer);
+                end
+                
+%                 reflected_intensities_r= gather(reflected_intensities_r);
+%                 reflected_intensities_g= gather(reflected_intensities_g);
+%                 reflected_intensities_b= gather(reflected_intensities_b);
+%                 reflected_gradX = gather(reflected_gradX);
+%                 reflected_gradY=  gather(reflected_gradY);
+                time_interp2 = toc(timer);
+                
+                % calculate L1 distance in color space, gradient
+                r_references = obj.reference(height_range_of_window, width_range_of_window, 1);
+                g_references = obj.reference(height_range_of_window, width_range_of_window, 2);
+                b_references = obj.reference(height_range_of_window, width_range_of_window, 3);
+                r_diff = single(r_references(legal)) - reflected_intensities_r;
+                g_diff = single(g_references(legal)) - reflected_intensities_g;
+                b_diff = single(b_references(legal)) - reflected_intensities_b;
+                color_diff = cat(3, r_diff, g_diff, b_diff);
+                color_distance = sum(abs(color_diff), 3);
+                color_distance(color_distance < obj.pms.trun_color) = obj.pms.trun_color;
+                
+                gradX_references = obj.grad_reference(height_range_of_window, width_range_of_window, 1);
+                gradY_references = obj.grad_reference(height_range_of_window, width_range_of_window, 2);
+                gradX_diff = gradX_references(legal) - reflected_gradX;
+                gradY_diff = gradY_references(legal) - reflected_gradY;
+                grad_diff = cat(3, gradX_diff, gradY_diff);
+                grad_distance = sum(abs(grad_diff), 3);
+                grad_distance(grad_distance < obj.pms.trun_grad) = obj.pms.trun_grad;
+
+                % calculate dissimilarity
+                s(legal) = (1 - obj.pms.alpha) .* color_distance + obj.pms.alpha .* grad_distance;
+            end
+            time_blabla = toc(timerbig);
+            timer = tic;
+            numOfInvalid = (numel(coordinates_references(:, :, 1)) - sum(valid, 'all'));
+            time_numOfInvalid = toc(timer);
+            time_all = toc(all);
         end
 
 
@@ -242,5 +267,6 @@ classdef PointMatchStereo
 %         function spatial_propagate(obj)
 %         
 %         end
+
     end
 end
