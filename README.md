@@ -2,7 +2,11 @@
 
 ## Demo Videos
 ### Version 3.0.0 (CPU)
-![video](https://github.com/as468579/Polarized-Tag/blob/master/ver3.0.0.mp4)
+
+
+
+https://user-images.githubusercontent.com/43639261/146834071-4aa19735-fd50-419b-b876-3bee5f70df1d.mp4
+
 
 
 
