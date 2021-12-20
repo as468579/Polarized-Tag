@@ -3,8 +3,6 @@
 ## Demo Videos
 ### Version 3.0.0 (CPU)
 
-
-
 https://user-images.githubusercontent.com/43639261/146834071-4aa19735-fd50-419b-b876-3bee5f70df1d.mp4
 
 
